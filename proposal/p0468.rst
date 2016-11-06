@@ -321,7 +321,7 @@ context, *r* is able to *increment* ``c``, *decrement* ``c``, or access the *c*
 of *p*.
 
 Let the notation *r.p* denote the pointer stored by *r*. Upon request, *r* can
-Furthermore, *r* can explicitly choose to increment *c* when *r.p* is replaced.
+explicitly choose to increment *c* when *r.p* is replaced.
 
 Additionally, *r* can, upon request, *transfer ownership* to another retain
 pointer *r2*. Upon completion of such a transfer, the following postconditions
