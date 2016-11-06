@@ -2,7 +2,9 @@
 #define SG14_MEMORY_HPP
 
 #include <type_traits>
+#include <functional>
 #include <utility>
+#include <memory>
 #include <atomic>
 
 namespace sg14 {
@@ -79,6 +81,12 @@ struct conjunction<B, Bs...> : conditional_t<
 template <class T>
 using has_pointer = typename T::pointer;
 
+template <class T>
+using has_overload_addressof = typename T::overload_addressof;
+
+template <class T>
+using has_default_action = typename T::default_action;
+
 template <class T, class P>
 using has_use_count = decltype(T::use_count(declval<P>()));
 
@@ -118,9 +126,6 @@ using impl::is_detected;
 
 template <class> struct retain_traits;
 
-template <class Base, class Derived>
-constexpr bool IsBaseOf = std::is_base_of<Base, Derived>::value;
-
 template <class T>
 struct atomic_reference_count {
   friend retain_traits<T>;
@@ -139,8 +144,11 @@ private:
   long count { 1 };
 };
 
-struct retain_t { constexpr retain_t () noexcept = default; };
-constexpr retain_t retain { };
+struct retain_object_t {  retain_object_t () noexcept = default; };
+struct adopt_object_t {  adopt_object_t () noexcept = default; };
+
+constexpr retain_object_t retain_object { };
+constexpr adopt_object_t adopt_object { };
 
 template <class T>
 struct retain_traits final {
@@ -176,6 +184,18 @@ struct retain_ptr {
     impl::has_pointer,
     traits_type
   >;
+  using default_action = detected_or_t<
+    adopt_object_t,
+    impl::has_default_action,
+    traits_type
+  >;
+
+  static constexpr bool CheckAction = is_same<default_action, adopt_object_t>()
+    or is_same<default_action, retain_object_t>();
+
+  static_assert(
+    CheckAction,
+    "traits_type::default_action must be adopt_object_t or retain_object_t");
 
   static constexpr bool SafeIncrement = impl::safe_increment<
     traits_type,
@@ -203,11 +223,20 @@ struct retain_ptr {
     pointer
   > { };
 
-  retain_ptr (pointer ptr, retain_t) noexcept(SafeIncrement) :
-    retain_ptr { ptr }
+  static constexpr auto has_overload_addressof = is_detected<
+    impl::has_overload_addressof,
+    traits_type
+  > { };
+
+  retain_ptr (pointer ptr, retain_object_t) noexcept(SafeIncrement) :
+    retain_ptr { ptr, adopt_object }
   { if (*this) { traits_type::increment(this->get()); } }
 
-  explicit retain_ptr (pointer ptr) : ptr { ptr } { }
+  retain_ptr (pointer ptr, adopt_object_t) : ptr { ptr } { }
+
+  explicit retain_ptr (pointer ptr) :
+    retain_ptr { ptr, default_action() }
+  { }
 
   retain_ptr (nullptr_t) : retain_ptr { } { }
 
@@ -244,11 +273,22 @@ struct retain_ptr {
   explicit operator bool () const noexcept { return this->get(); }
   decltype(auto) operator * () const noexcept { return *this->get(); }
   pointer operator -> () const noexcept { return this->get(); }
-  pointer get () const noexcept { return this->ptr; }
+
+  auto operator & () const noexcept {
+    static  auto branch = is_detected<
+      impl::has_overload_addressof,
+      traits_type,
+      pointer
+    > { };
+    return this->addressof(branch);
+  }
+
+   pointer get () const noexcept { return this->ptr; }
 
   long use_count () const noexcept(SafeUseCount) {
     return this->use_count(has_use_count);
   }
+
   bool unique () const noexcept(SafeUseCount) {
     return this->use_count() == 1;
   }
@@ -259,13 +299,23 @@ struct retain_ptr {
     return ptr;
   }
 
-  void reset (pointer ptr, retain_t) noexcept(SafeIncDec) {
-    *this = retain_ptr(ptr, retain);
+  void reset (pointer ptr, retain_object_t) noexcept(SafeIncDec) {
+    *this = retain_ptr(ptr, retain_object);
   }
 
-  void reset (pointer ptr) noexcept { retain_ptr(ptr).swap(*this); }
+  void reset (pointer ptr, adopt_object_t) noexcept {
+    *this = retain_ptr(ptr, adopt_object);
+  }
+
+  void reset (pointer ptr) noexcept {
+    *this = retain_ptr(ptr, default_action());
+  }
 
 private:
+
+  auto addressof (false_type) const { return this; }
+  auto addressof (true_type) const { return ::std::addressof(this->ptr); }
+
   long use_count (true_type) const noexcept(SafeUseCount) {
     return this->get() ? traits_type::count(this->get()) : 0;
   }
@@ -327,34 +377,52 @@ bool operator != (retain_ptr<T, R> const& lhs, nullptr_t) noexcept {
 }
 
 template <class T, class R>
-bool operator >= (retain_ptr<T, R> const& lhs, nullptr_t) noexcept;
+bool operator >= (retain_ptr<T, R> const& lhs, nullptr_t) noexcept {
+  return not (lhs < nullptr);
+}
 
 template <class T, class R>
-bool operator <= (retain_ptr<T, R> const& lhs, nullptr_t) noexcept;
+bool operator <= (retain_ptr<T, R> const& lhs, nullptr_t) noexcept {
+  return nullptr < lhs;
+}
 
 template <class T, class R>
-bool operator > (retain_ptr<T, R> const& lhs, nullptr_t) noexcept;
+bool operator > (retain_ptr<T, R> const& lhs, nullptr_t) noexcept {
+  return not (nullptr < lhs);
+}
 
 template <class T, class R>
-bool operator < (retain_ptr<T, R> const& lhs, nullptr_t) noexcept;
+bool operator < (retain_ptr<T, R> const& lhs, nullptr_t) noexcept {
+  return std::less<>()(lhs.get(), nullptr);
+}
 
 template <class T, class R>
-bool operator == (nullptr_t, retain_ptr<T, R> const& rhs) noexcept;
+bool operator == (nullptr_t, retain_ptr<T, R> const& rhs) noexcept {
+  return not rhs;
+}
 
 template <class T, class R>
-bool operator != (nullptr_t, retain_ptr<T, R> const& rhs) noexcept;
+bool operator != (nullptr_t, retain_ptr<T, R> const& rhs) noexcept {
+  return bool(rhs);
+}
 
 template <class T, class R>
-bool operator >= (nullptr_t, retain_ptr<T, R> const& rhs) noexcept;
+bool operator >= (nullptr_t, retain_ptr<T, R> const& rhs) noexcept {
+  return not (nullptr < rhs);
+}
 
 template <class T, class R>
 bool operator <= (nullptr_t, retain_ptr<T, R> const& rhs) noexcept;
 
 template <class T, class R>
-bool operator > (nullptr_t, retain_ptr<T, R> const& rhs) noexcept;
+bool operator > (nullptr_t, retain_ptr<T, R> const& rhs) noexcept {
+  return not (rhs < nullptr);
+}
 
 template <class T, class R>
-bool operator < (nullptr_t, retain_ptr<T, R> const& rhs) noexcept;
+bool operator < (nullptr_t, retain_ptr<T, R> const& rhs) noexcept {
+  return std::less<>()(rhs.get(), nullptr);
+}
 
 } /* namespace sg14 */
 

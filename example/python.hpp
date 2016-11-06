@@ -30,7 +30,7 @@ struct tuple {
   { }
 
   object operator [] (index_type idx) const noexcept {
-    return { PyTuple_GetItem(this->obj.get(), idx), sg14::retain };
+    return { PyTuple_GetItem(this->obj.get(), idx), sg14::retain_object };
   }
 
   index_type size () const noexcept { return PyTuple_Size(this->obj.get()); }
@@ -38,6 +38,8 @@ struct tuple {
   tuple slice (index_type low, index_type high) const noexcept {
     return PyTuple_GetSlice(this->obj.get(), low, high);
   }
+
+  auto get () const noexcept { return this->obj.get(); }
 
 private:
   object obj;
@@ -57,11 +59,7 @@ struct list {
   { }
 
   object operator [] (index_type idx) const noexcept {
-    return { PyList_GetItem(this->obj.get(), idx), sg14::retain };
-  }
-
-  explicit operator tuple () const noexcept {
-    return PyList_AsTuple(this->obj.get());
+    return { PyList_GetItem(this->obj.get(), idx), sg14::retain_object };
   }
 
   void insert (index_type idx, object item) noexcept {
@@ -87,9 +85,14 @@ struct list {
   void reverse () noexcept { PyList_Reverse(this->obj.get()); }
   void sort () noexcept { PyList_Sort(this->obj.get()); }
 
+  auto get () const noexcept { return this->obj.get(); }
+
 private:
   object obj;
 };
+
+inline tuple as_tuple (list const& in) { return PySequence_Tuple(in.get()); }
+inline list as_list (tuple const& in) { return PyList_AsTuple(in.get()); }
 
 } /* namespace py */
 
