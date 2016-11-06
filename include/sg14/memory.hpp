@@ -234,7 +234,8 @@ struct retain_ptr {
 
   retain_ptr (pointer ptr, adopt_object_t) : ptr { ptr } { }
 
-  explicit retain_ptr (pointer ptr) :
+  explicit retain_ptr (pointer ptr) noexcept(
+    noexcept(retain_ptr(ptr, default_action()))) :
     retain_ptr { ptr, default_action() }
   { }
 
@@ -307,9 +308,9 @@ struct retain_ptr {
     *this = retain_ptr(ptr, adopt_object);
   }
 
-  void reset (pointer ptr) noexcept {
-    *this = retain_ptr(ptr, default_action());
-  }
+  void reset (pointer ptr) noexcept(
+    noexcept(retain_ptr(ptr, default_action()))
+  ) { *this = retain_ptr(ptr, default_action()); }
 
 private:
 

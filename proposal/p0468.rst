@@ -152,25 +152,71 @@ our desire for the ``retain_ptr<T>`` to *detach* its management of the object
 it stores. Other possible names for ``detach()`` that could be considered are
 ``disengage``, ``discard``, and ``withdraw``.
 
-Why provide retain_t?
-#####################
+Does retain_ptr adopt or retain an object on construction or reset?
+###################################################################
 
-``retain_t`` (and its instance ``retain``) are currently used to represent the
-case where a ``retain_ptr`` needs to *extend* (i.e., retain) a pointer to an
-object. This mostly comes into play when interacting with APIs that return a
-borrowed reference to an object without incrementing its reference count to
-begin with. Additionally, an ``enum class retain : bool { no, yes }`` would
-technically be possible, but this would be the first time such an API is placed
-into the standard library.
+The default action that ``retain_ptr`` takes on construction or reset is
+determined by the traits object for the ``retain_ptr``. If the traits object
+has a type member named ``default_action``, the ``retain_ptr`` will use that
+to delegate to the correct constructor. If there is no type alias member named
+``default_action``, the default operation is to *adopt* the object (i.e., it
+does not increment the reference count during its construction). The
+``default_action`` typedef *must* be either the type ``adopt_object_t`` or
+``retain_object_t``.
 
-The name of this type is available for bikeshedding however. Some other less
-elegant names include:
+Why provide retain_object_t and adopt_object_t?
+###############################################
+
+``retain_object_t`` and ``adopt_object_t`` act as sentinel types to provide
+explicit requests to either *extend* or *adopt* an object when constructing
+or resetting a ``retain_ptr``. This mostly comes into play when interacting
+APIs that return a borrowed (rather than a new) reference to an object without
+incrementing its reference count.
+
+
+Technically, an ``enum class retain : bool { no, yes }`` would be possible, but
+this would be the first time such an API is placed into the standard library.
+Using a boolean parameter (as found in ``boost::intrusive_ptr``) is
+unsatisfactory and does not help describe the operation that the user is
+requesting.
+
+The name of these types are available for bikeshedding. Some other possible
+names for ``retain_object_t`` include:
 
  * retain_element_t
  * extend_element_t
  * retainobj_t
  * extendobj_t
- * extend_t
+
+While ``adopt_object_t`` names include:
+
+ * adopt_element_t
+ * adoptobj_t
+
+Does retain_ptr overload the addressof operator?
+################################################
+
+This is not currently in the `Technical Specification`_, however it is provided
+in some form in the implementation. Permitting ``retain_ptr`` to overload the
+address of operator (unary ``operator &``) is going to be extremely
+contentious. It is almost never found in the wild. However, it does have a use.
+Specifically, it is used when interacting with older C or C++ APIs where one
+would pass the address of a raw pointer to initialize it. Microsoft's
+``ComPtr<T>`` does this, overloading the addressof operator to return the
+address of the stored pointer. The idiom can also be found in the Python C API,
+when parsing arguments from a tuple, where a smart pointer with an addressof
+operator overload would require less housekeeping. Effectively, I am requesting
+comments on whether:
+
+ * We should not overload the addressof operator ever
+ * We should overload the addressof operator if the traits_type requests it
+ * We should permit specific vendors to define an overload or not
+ * We should permit getting the addressof the stored pointer if the traits_type
+   requests it, but it is a member function and not an operator overload.
+ * We should permit getting the addressof the stored pointer if the traits_type
+   requests it, but it should be a non-member function.
+
+Decisions will be made on the aforementioned bikeshedding.
 
 Can retain_traits store state?
 ##############################
@@ -199,7 +245,7 @@ for errors in both implementations) is as simple as:
    struct context {
      using handle_type = retain_ptr<cl_context, context_traits>;
      using pointer = handle_type::pointer;
-     context (pointer p, retain_t) : handle(p, retain) { }
+     context (pointer p, retain_object_t) : handle(p, retain) { }
      context (pointer p) : handle(p) { }
    private:
      handle_type handle;
@@ -219,14 +265,14 @@ twice as long to get the same functionality:
      void operator () (pointer p) const { clReleaseContext(p); }
    };
 
-   struct retain_t { };
-   constexpr retain_t retain { };
+   struct retain_object_t { };
+   constexpr retain_object_t retain { };
 
    struct context {
      using handle_type = unique_ptr<cl_context, context_deleter>;
      using pointer = handle_type::pointer;
 
-     context (pointer p, retain_t) :
+     context (pointer p, retain_object_t) :
        context(p)
      { handle.get_deleter().increment(handle.get()); }
 
@@ -240,6 +286,8 @@ twice as long to get the same functionality:
        context(that.handle.get(), retain).swap(*this);
        return *this;
      }
+
+     void swap (context& that) noexcept { handle.swap(that); }
        
    private:
      handle_type handle;
@@ -304,7 +352,8 @@ function.*)
    class atomic_reference_count<T>;
    class reference_count<T>;
 
-   class retain_t;
+   class retain_object_t;
+   class adopt_object_t;
 
    template <class T> struct retain_traits;
 
@@ -381,16 +430,19 @@ intended to be the type deriving from ``atomic_reference_count`` or
      uint_least64_t count { 1 }; // provided for exposition
    };
 
-retain_t
-########
+retain_object_t and adopt_object_t
+##################################
 
-``retain_t`` is a sentinel type, with a constexpr instance ``retain``.
+``retain_object_t`` and ``adopt_object_t`` are sentinel types, with constexpr
+instances ``retain_object`` and ``adopt_object`` respectively.
 
 .. code:: c++
 
    namespace std {
-     struct retain_element_t { constexpr retain_element_t () = default; }
-     constexpr retain_t retain { };
+     struct retain_object_t { constexpr retain_object_t () = default; };
+     struct adopt_object_t { constexpr adopt_object_t () = default; };
+     constexpr retain_object_t retain_object { };
+     constexpr adopt_object_t adopt_object { };
    }
 
 retain_traits<T>
@@ -471,8 +523,9 @@ requirements of ``NullablePointer``.
      using traits_type = R;
      using pointer = /* see below */
 
-     retain_ptr (pointer, retain_t) noexcept(/* see below */);
-     explicit retain_ptr (pointer) noexcept;
+     retain_ptr (pointer, retain_object_t) noexcept(/* see below */);
+     retain_ptr (pointer, adopt_object_t) noexcept;
+     explicit retain_ptr (pointer) noexcept(/* see below */);
      retain_ptr (nullptr_t) noexcept : retain_ptr() { }
 
      retain_ptr (retain_ptr const&) noexcept(/* see below */);
@@ -499,14 +552,15 @@ requirements of ``NullablePointer``.
 
      [[nodiscard]] pointer detach () noexcept;
 
-     void reset (pointer, retain_t) noexcept(/* see below */);
+     void reset (pointer, retain_object_t) noexcept(/* see below */);
+     void reset (pointer, adopt_object_t) noexcept(/* see below */);
      void reset (pointer p = pointer { }) noexcept(/* see below */);
    };
 
 retain_ptr constructors
 ^^^^^^^^^^^^^^^^^^^^^^^
 
-``retain_ptr (pointer p, retain_t) noexcept(maybe);``
+``retain_ptr (pointer p, retain_object_t) noexcept(maybe);``
 
   :effects: Constructs a ``retain_ptr`` that retains ``p``, initializing the
             stored pointer with ``p``, and increments the reference count of
@@ -517,12 +571,22 @@ retain_ptr constructors
             If an exception is thrown during this operation, this constructor
             will have no effect.
 
-``explicit retain_ptr (pointer p) noexcept;``
+``retain_ptr (pointer p, adopt_object_t) noexcept;``
 
-  :effects: Constructs a ``retain_ptr`` that retains ``p``, initializing the
+  :effects: Constructs a ``retain_ptr`` that adopts ``p``, initializing the
             stored pointer with ``p``.
   :postconditions: ``get() == p``
-  :remarks: ``p``'s reference count remains untouched.
+  :remarks: ``p``'s reference count remains untouched
+
+``explicit retain_ptr (pointer p) noexcept(maybe);``
+
+  :effects: Constructs a ``retain_ptr`` by delegating to another ``retain_ptr``
+            constructor via ``traits_type::default_action``. If
+            ``traits_type::default_action`` does not exist, ``retain_ptr`` is
+            constructed as if by ``retain_ptr(p, adopt_object_t)``.
+  :postconditions: ``get() == p``
+  :remarks: This constructor is only specified ``noexcept`` if the delegated
+            constructor is also specified ``noexcept``.
 
 ``retain_ptr () noexcept;``
 
@@ -632,7 +696,7 @@ retain_ptr modifiers
   :postcondition: ``get() == nullptr``
   :returns: The value ``get()`` had at the start of the call to ``detach``
 
-``void reset (pointer p, retain_t) noexcept(maybe);``
+``void reset (pointer p, retain_object_t) noexcept(maybe);``
 
   :effects: Assigns ``p`` to the stored pointer, and then if the old value of
             the stored pointer ``old_p``, was not equal to ``nullptr``, calls
@@ -643,7 +707,7 @@ retain_ptr modifiers
             ``traits_type::decrement`` and ``traits_type::increment`` are
             specified ``noexcept``.
 
-``void reset (pointer p = pointer { }) noexcept(maybe);``
+``void reset (pointer p, adopt_object_t) noexcept(maybe);``
 
   :effects: Assigns ``p`` to the stored pointer, and then if the old value of
             the stored pointer, ``old_p``, was not equal to ``nullptr``, calls
@@ -651,6 +715,14 @@ retain_ptr modifiers
   :postconditions: ``get() == p``
   :remarks: This modifier is only specified ``noexcept`` if
             ``traits_type::decrement`` is specified ``noexcept``.
+
+``void reset (pointer p = pointer { }) noexcept(maybe);``
+
+  :effects: Delegates assignment of ``p`` to the stored pointer via
+            ``reset(p, traits_type::default_action())``.
+  :postconditions: ``get() == p``
+  :remarks: This modifier is only specified ``noexcept`` if the delegated
+            ``reset`` function called is also specified ``noexcept``.
 
 ``void swap (retain_ptr& r) noexcept;``
 
@@ -791,7 +863,7 @@ Futures
 .. code-block:: c++
 
    template <class T>
-   struct shared_state : atomic_reference_counter {
+   struct shared_state : atomic_reference_counter<shared_state<T>> {
      bool empty () const noexcept { return get_if<0>(this->obj); }
      T get () const noexcept(false) {
        if (auto ptr = get_if<1>(this->obj)) { return move(*ptr); }
@@ -808,11 +880,11 @@ Futures
 
      template <class U>
      void set_value (U&& value) {
-       this->state.template emplace<1>(forward<U>(value));
+       this->state.obj.template emplace<1>(forward<U>(value));
      }
 
      void set_exception (exception_ptr ptr) noexcept {
-       this->state.template emplace<2>(ptr);
+       this->state.obj.template emplace<2>(ptr);
      }
 
    private:
