@@ -9,10 +9,6 @@
 
 namespace sg14 {
 
-using std::integral_constant;
-using std::false_type;
-using std::true_type;
-
 using std::is_convertible;
 using std::is_same;
 
@@ -27,18 +23,15 @@ using std::declval;
 namespace sg14 {
 namespace impl {
 
-template <bool B> using bool_constant = integral_constant<bool, B>;
-
-template <class...> using void_t = void;
 template <class T> struct identity { using type = T; };
 
 template <class T, class Void, template <class...> class, class...>
-struct detector : identity<T> { using value_t = false_type; };
+struct detector : identity<T> { using value_t = std::false_type; };
 
 template <class T, template <class...> class U, class... Args>
-struct detector<T, void_t<U<Args...>>, U, Args...> :
+struct detector<T, std::void_t<U<Args...>>, U, Args...> :
   identity<U<Args...>>
-{ using value_t = true_type; };
+{ using value_t = std::true_type; };
 
 struct nonesuch final {
   nonesuch (nonesuch const&) = delete;
@@ -61,61 +54,22 @@ template <template <class...> class T, class... Args>
 using is_detected = typename detected_or<nonesuch, T, Args...>::value_t;
 
 template <class To, template <class...> class T, class... Args>
-using is_detected_convertible = is_convertible<
+using is_detected_convertible = std::is_convertible<
   detected_t<T, Args...>,
   To
 >;
 
 template <class T, template <class...> class U, class... Args>
-using is_detected_exact = is_same<T, detected_t<U, Args...>>;
-
-template<class...> struct conjunction;
-template<> struct conjunction<> : true_type { };
-template<class B, class... Bs>
-struct conjunction<B, Bs...> : conditional_t<
-  B::value,
-  conjunction<Bs...>,
-  B
-> { };
+using is_detected_exact = std::is_same<T, detected_t<U, Args...>>;
 
 template <class T>
 using has_pointer = typename T::pointer;
 
 template <class T>
-using has_overload_addressof = typename T::overload_addressof;
-
-template <class T>
 using has_default_action = typename T::default_action;
 
 template <class T, class P>
-using has_use_count = decltype(T::use_count(declval<P>()));
-
-template <class T, class P, bool=is_detected<has_use_count, T, P>::value>
-struct safe_count;
-
-template <class T, class P> struct safe_count<T, P, true> :
-  bool_constant<noexcept(T::use_count(declval<P>()))>
-{ };
-
-template <class T, class P> struct safe_count<T, P, false> : false_type { };
-
-template <class T, class P>
-using safe_increment = bool_constant<noexcept(T::increment(declval<P>()))>;
-
-template <class T, class P>
-using safe_decrement = bool_constant<noexcept(T::decrement(declval<P>()))>;
-
-template <class T, class P>
-using safe_incdec = conjunction<
-  safe_increment<T, P>,
-  safe_decrement<T, P>
->;
-
-template <class T, class P>
-using safe_use_count = conjunction<
-  is_detected<has_use_count, T, P>,
-  safe_count<T, P>
->;
+using has_use_count = decltype(T::use_count(std::declval<P>()));
 
 }} /* namespace sg14::impl */
 
@@ -154,7 +108,7 @@ template <class T>
 struct retain_traits final {
 
   static void increment (atomic_reference_count<T>* ptr) noexcept {
-    ptr->count.fetch_add(1, std::memory_order_acq_rel);
+    ptr->count.fetch_add(1, std::memory_order::relaxed);
   }
 
   static void decrement (atomic_reference_count<T>* ptr) noexcept {
@@ -163,7 +117,7 @@ struct retain_traits final {
   }
 
   static long use_count (atomic_reference_count<T>* ptr) noexcept {
-    return ptr->count.load(std::memory_order_acquire);
+    return ptr->count.load(std::memory_order::relaxed);
   }
 
   static void increment (reference_count<T>* ptr) noexcept { ++ptr->count; }
@@ -179,43 +133,27 @@ template <class T, class R=retain_traits<T>>
 struct retain_ptr {
   using element_type = T;
   using traits_type = R;
+
   using pointer = detected_or_t<
     add_pointer_t<element_type>,
     impl::has_pointer,
     traits_type
   >;
+
   using default_action = detected_or_t<
     adopt_object_t,
     impl::has_default_action,
     traits_type
   >;
 
-  static constexpr bool CheckAction = is_same<default_action, adopt_object_t>()
-    or is_same<default_action, retain_object_t>();
+  static constexpr bool CheckAction = std::disjunction_v<
+    std::is_same<default_action, adopt_object_t>,
+    std::is_same<default_action, retain_object_t>
+  >;
 
   static_assert(
     CheckAction,
     "traits_type::default_action must be adopt_object_t or retain_object_t");
-
-  static constexpr bool SafeIncrement = impl::safe_increment<
-    traits_type,
-    pointer
-  >::value;
-
-  static constexpr bool SafeDecrement = impl::safe_decrement<
-    traits_type,
-    pointer
-  >::value;
-
-  static constexpr bool SafeIncDec = impl::safe_incdec<
-    traits_type,
-    pointer
-  >::value;
-
-  static constexpr bool SafeUseCount = impl::safe_use_count<
-    traits_type,
-    pointer
-  >::value;
 
   static constexpr auto has_use_count = is_detected<
     impl::has_use_count,
@@ -223,25 +161,19 @@ struct retain_ptr {
     pointer
   > { };
 
-  static constexpr auto has_overload_addressof = is_detected<
-    impl::has_overload_addressof,
-    traits_type
-  > { };
-
-  retain_ptr (pointer ptr, retain_object_t) noexcept(SafeIncrement) :
+  retain_ptr (pointer ptr, retain_object_t) :
     retain_ptr { ptr, adopt_object }
   { if (*this) { traits_type::increment(this->get()); } }
 
   retain_ptr (pointer ptr, adopt_object_t) : ptr { ptr } { }
 
-  explicit retain_ptr (pointer ptr) noexcept(
-    noexcept(retain_ptr(ptr, default_action()))) :
+  explicit retain_ptr (pointer ptr) :
     retain_ptr { ptr, default_action() }
   { }
 
   retain_ptr (nullptr_t) : retain_ptr { } { }
 
-  retain_ptr (retain_ptr const& that) noexcept(SafeIncrement) :
+  retain_ptr (retain_ptr const& that) :
     ptr { that.ptr }
   { if (*this) { traits_type::increment(this->get()); } }
 
@@ -250,16 +182,16 @@ struct retain_ptr {
   { }
 
   retain_ptr () noexcept = default;
-  ~retain_ptr () noexcept(SafeDecrement) {
+  ~retain_ptr () {
     if (*this) { traits_type::decrement(this->get()); }
   }
 
-  retain_ptr& operator = (retain_ptr const& that) noexcept(SafeIncDec) {
+  retain_ptr& operator = (retain_ptr const& that) {
     retain_ptr(that).swap(*this);
     return *this;
   }
 
-  retain_ptr& operator = (retain_ptr&& that) noexcept(SafeDecrement) {
+  retain_ptr& operator = (retain_ptr&& that) {
     retain_ptr(std::move(that)).swap(*this);
     return *this;
   }
@@ -275,23 +207,12 @@ struct retain_ptr {
   decltype(auto) operator * () const noexcept { return *this->get(); }
   pointer operator -> () const noexcept { return this->get(); }
 
-  auto operator & () const noexcept {
-    static  auto branch = is_detected<
-      impl::has_overload_addressof,
-      traits_type,
-      pointer
-    > { };
-    return this->addressof(branch);
-  }
+  pointer get () const noexcept { return this->ptr; }
 
-   pointer get () const noexcept { return this->ptr; }
-
-  long use_count () const noexcept(SafeUseCount) {
-    return this->use_count(has_use_count);
-  }
-
-  bool unique () const noexcept(SafeUseCount) {
-    return this->use_count() == 1;
+  long use_count () const {
+    if constexpr (has_use_count) {
+      return this->get() ? traits_type::count(this->get()) : 0;
+    } else { return -1; }
   }
 
   pointer detach () noexcept {
@@ -300,7 +221,7 @@ struct retain_ptr {
     return ptr;
   }
 
-  void reset (pointer ptr, retain_object_t) noexcept(SafeIncDec) {
+  void reset (pointer ptr, retain_object_t) {
     *this = retain_ptr(ptr, retain_object);
   }
 
@@ -308,21 +229,9 @@ struct retain_ptr {
     *this = retain_ptr(ptr, adopt_object);
   }
 
-  void reset (pointer ptr) noexcept(
-    noexcept(retain_ptr(ptr, default_action()))
-  ) { *this = retain_ptr(ptr, default_action()); }
+  void reset (pointer ptr) { *this = retain_ptr(ptr, default_action()); }
 
 private:
-
-  auto addressof (false_type) const { return this; }
-  auto addressof (true_type) const { return ::std::addressof(this->ptr); }
-
-  long use_count (true_type) const noexcept(SafeUseCount) {
-    return this->get() ? traits_type::count(this->get()) : 0;
-  }
-
-  long use_count (false_type) const noexcept { return -1; }
-
   pointer ptr { };
 };
 
