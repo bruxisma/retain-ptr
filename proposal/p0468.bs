@@ -30,23 +30,23 @@ I'd like to thank the following:
 
 ## Revision 1 ## {#r1}
 
-  * Rewrote proposal in bikeshed, the hot new format that every cool proposal
-     writer is using now.
-  * Clarified section on addressof operator, now that `c_ptr` is being
-     submitted
-  * Removed `retain_ptr::unique` as it was removed from `shared_ptr` for C++20.
-  * Changed name of `retain_t` to `retain_object_t`
-  * Changed atomicity of `atomic_reference_count` based on suggestions from
-     Billy O'Neal.
-  * Changed wording to use C++17/C++20 features.
-  * Changed order of document. [[#specification]] is now at the very end
-     of the document, and [[#examples]] are further up.
-  * Added `adopt_object_t` and `default_action` to let users decide what
-     action they want on construction and reset.
-  * Added `static_pointer_cast`, `dynamic_pointer_cast`, `const_pointer_cast`,
-     and `reinterpret_pointer_cast`.
-  * Added deduction guides to bring `retain_ptr` in line with other smart
-     pointers
+ * Rewrote proposal in bikeshed, the hot new format that every cool proposal
+    writer is using now.
+ * Clarified section on addressof operator, now that `c_ptr` is being
+    submitted
+ * Removed `retain_ptr::unique` as it was removed from `shared_ptr` for C++20.
+ * Changed name of `retain_t` to `retain_object_t`
+ * Changed atomicity of `atomic_reference_count` based on suggestions from
+    Billy O'Neal.
+ * Changed wording to use C++17/C++20 features.
+ * Changed order of document. [[#specification]] is now at the very end
+    of the document, and [[#examples]] are further up.
+ * Added `adopt_object_t` and `default_action` to let users decide what
+    action they want on construction and reset.
+ * Added `static_pointer_cast`, `dynamic_pointer_cast`, `const_pointer_cast`,
+    and `reinterpret_pointer_cast`.
+ * Added deduction guides to bring `retain_ptr` in line with other smart
+    pointers
 
 ## Revision 0 ## {#r0}
 
@@ -500,8 +500,6 @@ namespace std {
 
 ## `retain_ptr<T>` ## {#wording-pointer}
 
-<a lt="retain-ptr">`retain_ptr<T>`</a>
-
 The default type for the template parameter `R` is `retain_traits`. A
 client supplied template argument `R` shall be an object with non-member
 functions for which, given a `ptr` of type `retain_ptr<T, R>::pointer`, the
@@ -514,12 +512,6 @@ If the *qualified-id* `R::pointer` is valid and denotes a type, then
 `retain_ptr<T, R>::pointer` shall be a synonym for `element_type*`. The type
 `retain_ptr<T, R>::pointer` shall satisfy the requirements of
 *NullablePointer*.
-
-<xmp>
-interface retain_ptr<T> {
-
-};
-</xmp>
 
 ```cpp
 template <class T, class R=retain_traits<T>>
@@ -563,56 +555,276 @@ struct retain_ptr {
 
 ### `retain_ptr` constructors ### {#wording-pointer-ctor}
 
+<blockquote>
+```cpp
+retain_ptr (pointer p, retain_object_t);
+```
+</blockquote>
+
+*Effects*: Constructs a `retain_ptr` that retains `p`, initializing the stored
+pointer with `p`, and increments the reference count of `p` if `p != nullptr`
+by way of `traits_type::increment`.
+
+*Postconditions*: `get() == p`
+
+*Remarks*: If an exception is thrown during increment, this constructor will
+have no effect.
+
+<blockquote>
+```cpp
+retain_ptr (pointer p, adopt_object_t) noexcept;
+```
+</blockquote>
+
+*Effects*: Constructs a `retain_ptr` that adopts `p`, initializing the stored
+pointer with `p`.
+
+*Postconditions*: `get() == p`
+
+*Remarks*: `p`'s refrence count remains untouched.
+
+<blockquote>
+```cpp
+explicit retain_ptr (pointer p);
+```
+</blockquote>
+
+*Effects*: Constructs a `retain_ptr` by delegating to another `retain_ptr`
+constructor via `traits_type::default_action`. If `traits_type::default_action`
+does not exist, `retain_ptr` is constructed as if by `retain_ptr(p,
+adopt_object_t)`.
+
+*Postconditions*: `get() == p`
+
+*Remarks*: If an exception is thrown, this constructor will have no effect.
+
+<blockquote>
+```cpp
+retain_ptr () noexcept;
+```
+</blockquote>
+
+*Effects*: Constructs a `retain_ptr` object that retains nothing,
+value-initializing the stored pointer.
+
+*Postconditions*: `get() == nullptr`
+
+<blockquote>
+```cpp
+retain_ptr(retain_ptr const& r);
+```
+</blockquote>
+
+*Effects*: Constructs a `retain_ptr` by extending management from `r` to
+`*this`. The stored pointer's reference count is incremented.
+
+*Postconditions*: `get() == r.get()`
+
+*Remarks*: If an exception is thrown, this constructor will have no effect.
+
+<blockquote>
+```cpp
+retain_ptr(retain_ptr&& r) noexcept;
+```
+</blockquote>
+
+*Effects*: Constructs a `retain_ptr` by transferring management from `r` to
+`*this`. The stored pointer's reference count remains untouched.
+
+*Postconditions*: `get()` yields the value `r.get()` yielded before the
+construction.
+
 ### `retain_ptr` destructor ### {#wording-pointer-dtor}
+
+<blockquote>
+```cpp
+~retain_ptr();
+```
+</blockquote>
+
+*Effects*: If `get() == nullptr`, there are no effects. Otherwise,
+`traits_type::decrement(get())`.
 
 ### `retain_ptr` assignment ### {#wording-pointer-assignment}
 
+<blockquote>
+```cpp
+retain_ptr& operator = (retain_ptr const& r);
+```
+</blockquote>
+
+*Effects*: Extends ownership from `r` to `*this` as if by calling
+`reset(r.get(), retain)`.
+*Returns*: `*this`
+
+<blockquote>
+```cpp
+retain_ptr& operator = (retain_ptr&& r) noexcept;
+```
+</blockquote>
+
+*Effects*: Transfers ownership from `r` to `*this` as if by calling
+`reset(r.detach())`
+*Returns*: `*this`
+
+<blockquote>
+```cpp
+retain_ptr& operator = (nullptr_t) noexcept;
+```
+</blockquote>
+
+*Effects*: `reset()`
+*Postconditions*: `get() == nullptr`
+*Returns*: `*this`
+
 ### `retain_ptr` observers ### {#wording-pointer-observers}
+
+<blockquote>
+```cpp
+element_type& operator * () const noexcept;
+```
+</blockquote>
+
+*Requires*: `get() != nullptr`
+*Returns*: `*get()`
+
+<blockquote>
+```cpp
+pointer operator -> () const noexcept;
+```
+</blockquote>
+
+*Requires*: `get() != nullptr`
+*Returns*: `get()`
+*Note*: Use typically requires that `element_type` be a complete type.
+
+<blockquote>
+```cpp
+pointer get () const noexcept;
+```
+</blockquote>
+
+*Returns*: The stored pointer
+
+<blockquote>
+```cpp
+explicit operator pointer () const noexcept;
+```
+</blockquote>
+
+*Returns*: `get()`
+
+<blockquote>
+```cpp
+explicit operator bool () const noexcept;
+```
+</blockquote>
+
+*Returns*: `get() != nullptr`
+
+<blockquote>
+```cpp
+long use_count () const;
+```
+</blockquote>
+
+*Returns*: Value representing the current reference count of the current stored
+pointer. If `traits_type::use_count(get())` is not a valid expression, `-1` is
+returned. If `get() == nullptr`, `0` is returned.
+
+*Remarks*: Unless otherwise specified, the value returned should be considered
+stale.
 
 ### `retain_ptr` modifiers ### {#wording-pointer-modifiers}
 
+<blockquote>
+```cpp
+[[nodiscard]] pointer detach () noexcept;
+```
+</blockquote>
+
+*Postconditions*: `get() == nullptr`
+*Returns*: The value `get()` had at the start of the call to `detach()`.
+
+<blockquote>
+```cpp
+void reset (pointer p, retain_object_t);
+```
+</blockquote>
+
+*Effects*: Assigns `p` to the stored pointer, and then if the old value of
+stored pointer `old_p`, was not equal to `nullptr`, calls
+`traits_type::decrement`. Then if `p` is not equal to `nullptr`,
+`traits_type::increment` is called.
+*Postconditions*: `get() == p`
+
+<blockquote>
+```cpp
+void reset(pointer p, adopt_object_t);
+```
+</blockquote>
+
+*Effects*: Assigns `p` to the stored pointer, and then if the old value of
+stored pointer `old_p`, was not equal to `nullptr`, calls
+`traits_type::decrement`.
+*Postconditions*: `get() == p`
+
+<blockquote>
+```cpp
+void reset (pointer p = pointer { })
+```
+</blockquote>
+
+*Effects*: Delegates assignment of `p` to the stored pointer via `reset(p,
+traits_type::default_action())`.
+*Postconditions*: `get() == p`
+
+<blockquote>
+```cpp
+void swap (retain_ptr& r) noexcept;
+```
+</blockquote>
+
+*Effects*: Invokes `swap` on the stored pointers of `*this` and `r`.
+
+
 ### `retain_ptr` specialized algorithms ### {#wording-pointer-algorithms}
 
+<blockquote>
 ```cpp
 template <class T, class R>
-void swap (retain_ptr<T, R>&, retain_ptr<T, R>&) noexcept;
+void swap (retain_ptr<T, R>& x, retain_ptr<T, R>& y) noexcept;
+```
+</blockquote>
 
+*Effects*: Calls `x.swap(y)`
+
+<blockquote>
+```cpp
 template <class T, class R>
 auto operator <=> (retain_ptr<T, R> const&, retain_ptr<T, R> const&) noexcept = default;
+```
+</blockquote>
 
+*Returns*: `x.get() <=> y.get()`
+
+<blockquote>
+```cpp
 template <class T, class R>
 auto operator <=> (retain_ptr<T, R> const&, nullptr_t) noexcept = default;
 ```
-
-<dl dfn-type=method dfn-for=retain_ptr>
-  : <dfn lt="swap()">swap()</dfn>
-  ::
-      Calls {{swap()}} on x and y
-
-</dl>
-
-> `template <class T, class R>
-> void swap (retain_ptr<T, R>& x, retain_ptr<T, R>& y) noexcept;`
-> <br><sup>1</sup> Effects: Calls `x.swap(y)`
-> <br>
-> `template <class T, class R> strong_ordering operator <=> (retain_ptr<T, R> const& x, retain_ptr<T, R> const& y) noexcept;`
-> <br><sup>1</sup> Returns: `x.get() <=> y.get()`
-> <br>
-<blockquote>
-<ins>
-<xmp>
-template <class T, class R>
-  strong_ordering operator <=> (retain_ptr<T, R> const& x, nullptr_t) noexcept;
-</xmp>
-<sup>1</sup> *Returns*: `x.get() <=> nullptr`
-</ins>
 </blockquote>
 
-> `template <class T, class R> `
-> <br><sup>1</sup> Returns: `x.get() <=> nullptr`
-> <br>
-> `template <class T, class R> strong_ordering operator <=> (nullptr_t, retain_ptr<T, R> const& y) noexcept;`
-> <br><sup>1</sup> Returns: `nullptr <=> y.get()`
+*Returns*: `x.get() <=> nullptr`
+
+<blockquote>
+```cpp
+template <class T, class R>
+strong_ordering operator <=> (nullptr_t, retain_ptr<T, R> const& y) noexcept;
+```
+</blockquote>
+
+*Returns*: `nullptr <=> y.get()`
 
 <pre class=biblio>
 {
@@ -623,4 +835,3 @@ template <class T, class R>
   }
 }
 </pre>
-
