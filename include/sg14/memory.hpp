@@ -134,7 +134,8 @@ struct retain_traits final {
   template <class U>
   static void decrement (reference_count<U>* ptr) noexcept {
     static_assert(std::is_base_of_v<U, T>, "");
-    if (ptr->count -= 1) { delete static_cast<T*>(ptr); }
+    --ptr->count;
+    if (not use_count(ptr)) { delete static_cast<T*>(ptr); }
   }
   template <class U>
   static long use_count (reference_count<U>* ptr) noexcept {
