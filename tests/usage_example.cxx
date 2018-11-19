@@ -26,28 +26,34 @@ struct instance_counted
 template<class T>
 long instance_counted<T>::numInstances = 0;
 
+template<class T>
+void test_basic_usage()
+{
+  using TPtr = sg14::retain_ptr<T>;
+  {
+    TPtr ptr{new T};
+    REQUIRE(T::numInstances == 1);
+    REQUIRE(ptr.use_count() == 1);
+    {
+      TPtr ptr2{ptr};
+      REQUIRE(T::numInstances == 1);
+      REQUIRE(ptr.use_count() == 2);
+      TPtr pt3{std::move(ptr2)};
+      REQUIRE(T::numInstances == 1);
+      REQUIRE(ptr.use_count() == 2);
+    }
+    REQUIRE(T::numInstances == 1);
+    REQUIRE(ptr.use_count() == 1);
+  }
+  REQUIRE(T::numInstances == 0);
+}
+
 class Base: public sg14::reference_count<Base>, public instance_counted<Base>
 {};
 
 TEST_CASE("base class")
 {
-  using BasePtr = sg14::retain_ptr<Base>;
-  {
-    BasePtr ptr{new Base};
-    REQUIRE(Base::numInstances == 1);
-    REQUIRE(ptr.use_count() == 1);
-    {
-      BasePtr ptr2{ptr};
-      REQUIRE(Base::numInstances == 1);
-      REQUIRE(ptr.use_count() == 2);
-      BasePtr pt3{std::move(ptr2)};
-      REQUIRE(Base::numInstances == 1);
-      REQUIRE(ptr.use_count() == 2);
-    }
-    REQUIRE(Base::numInstances == 1);
-    REQUIRE(ptr.use_count() == 1);
-  }
-  REQUIRE(Base::numInstances == 0);
+  test_basic_usage<Base>();
 }
 
 class Derived: public Base
@@ -55,21 +61,21 @@ class Derived: public Base
 
 TEST_CASE("derived class")
 {
-  using DerivedPtr = sg14::retain_ptr<Derived>;
+  test_basic_usage<Derived>();
+}
+
+class ThreadSafeBase: public sg14::atomic_reference_count<ThreadSafeBase>, public instance_counted<ThreadSafeBase>
+{};
+
+TEST_CASE("thread safe base class")
   {
-    DerivedPtr ptr{new Derived};
-    REQUIRE(Derived::numInstances == 1);
-    REQUIRE(ptr.use_count() == 1);
-    {
-      DerivedPtr ptr2{ptr};
-      REQUIRE(Derived::numInstances == 1);
-      REQUIRE(ptr.use_count() == 2);
-      DerivedPtr pt3{std::move(ptr2)};
-      REQUIRE(Derived::numInstances == 1);
-      REQUIRE(ptr.use_count() == 2);
-    }
-    REQUIRE(Derived::numInstances == 1);
-    REQUIRE(ptr.use_count() == 1);
-  }
-  REQUIRE(Derived::numInstances == 0);
+  test_basic_usage<ThreadSafeBase>();
+}
+
+class ThreadSafeDerived: public ThreadSafeBase
+{};
+
+TEST_CASE("thread safe derived class")
+{
+  test_basic_usage<ThreadSafeDerived>();
 }
