@@ -211,7 +211,7 @@ struct retain_ptr {
 
   long use_count () const {
     if constexpr (has_use_count) {
-      return this->get() ? traits_type::count(this->get()) : 0;
+      return this->get() ? traits_type::use_count(this->get()) : 0;
     } else { return -1; }
   }
 
