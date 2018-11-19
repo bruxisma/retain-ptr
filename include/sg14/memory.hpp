@@ -82,7 +82,7 @@ template <class> struct retain_traits;
 
 template <class T>
 struct atomic_reference_count {
-  friend retain_traits<T>;
+  template <class> friend class retain_traits;
 protected:
   atomic_reference_count () = default;
 private:
@@ -91,7 +91,7 @@ private:
 
 template <class T>
 struct reference_count {
-  friend retain_traits<T>;
+  template <class> friend class retain_traits;
 protected:
   reference_count () = default;
 private:
@@ -107,24 +107,30 @@ constexpr adopt_object_t adopt_object { };
 template <class T>
 struct retain_traits final {
 
-  static void increment (atomic_reference_count<T>* ptr) noexcept {
-    ptr->count.fetch_add(1, std::memory_order::relaxed);
+  template <class U>
+  static void increment (atomic_reference_count<U>* ptr) noexcept {
+    ptr->count.fetch_add(1, std::memory_order_relaxed);
   }
 
-  static void decrement (atomic_reference_count<T>* ptr) noexcept {
+  template <class U>
+  static void decrement (atomic_reference_count<U>* ptr) noexcept {
     ptr->count.fetch_sub(1, std::memory_order_acq_rel);
     if (not use_count(ptr)) { delete static_cast<T*>(ptr); }
   }
 
-  static long use_count (atomic_reference_count<T>* ptr) noexcept {
-    return ptr->count.load(std::memory_order::relaxed);
+  template <class U>
+  static long use_count (atomic_reference_count<U>* ptr) noexcept {
+    return ptr->count.load(std::memory_order_relaxed);
   }
 
-  static void increment (reference_count<T>* ptr) noexcept { ++ptr->count; }
-  static void decrement (reference_count<T>* ptr) noexcept {
+  template <class U>
+  static void increment (reference_count<U>* ptr) noexcept { ++ptr->count; }
+  template <class U>
+  static void decrement (reference_count<U>* ptr) noexcept {
     if (ptr->count -= 1) { delete static_cast<T*>(ptr); }
   }
-  static long use_count (reference_count<T>* ptr) noexcept {
+  template <class U>
+  static long use_count (reference_count<U>* ptr) noexcept {
     return ptr->count;
   }
 };

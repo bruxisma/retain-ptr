@@ -69,7 +69,7 @@ if (PYTHONLIBS_FOUND)
   endif()
 endif ()
 
-add_library(doctest-main OBJECT ${TEST_SOURCE_DIR}/doctest.cxx)
+add_library(doctest-main STATIC ${TEST_SOURCE_DIR}/doctest.cxx)
 target_compile_options(doctest-main
   PUBLIC
     $<$<BOOL:${CAN_USE_COVERAGE}>:${USE_COVERAGE}>
@@ -98,16 +98,16 @@ target_compile_options(doctest-main
     $<$<CXX_COMPILER_ID:Clang>:-Wno-weak-vtables>)
 
 if (TARGET pywrap)
-  add_executable(test-python ${TEST_SOURCE_DIR}/python.cxx
-    $<TARGET_OBJECTS:doctest-main>)
+  add_executable(test-python ${TEST_SOURCE_DIR}/python.cxx)
   add_test(python test-python)
-  target_compile_options(test-python
-    PRIVATE
-      $<TARGET_PROPERTY:doctest-main,INTERFACE_COMPILE_OPTIONS>)
   target_include_directories(test-python SYSTEM PRIVATE ${TEST_SOURCE_DIR})
-  target_include_directories(test-python PUBLIC
-    $<TARGET_PROPERTY:pywrap,INTERFACE_INCLUDE_DIRECTORIES>)
-  target_link_libraries(test-python PUBLIC retain-ptr pywrap)
+  target_link_libraries(test-python PUBLIC retain-ptr pywrap doctest-main)
   target_link_libraries(test-python PRIVATE
     $<$<BOOL:${CAN_USE_COVERAGE}>:${USE_COVERAGE}>)
 endif ()
+
+add_executable(test-usage_example ${TEST_SOURCE_DIR}/usage_example.cxx)
+add_test(usage_example test-usage_example)
+target_link_libraries(test-usage_example PUBLIC retain-ptr doctest-main)
+target_link_libraries(test-usage_example PRIVATE
+  $<$<BOOL:${CAN_USE_COVERAGE}>:${USE_COVERAGE}>)
