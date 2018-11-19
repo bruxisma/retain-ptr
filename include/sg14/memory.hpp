@@ -106,40 +106,36 @@ constexpr adopt_object_t adopt_object { };
 
 template <class T>
 struct retain_traits final {
-
   template <class U>
+  using enable_if_base = std::enable_if_t<std::is_base_of_v<U, T>>;
+
+  template <class U, class = enable_if_base<U>>
   static void increment (atomic_reference_count<U>* ptr) noexcept {
-    static_assert(std::is_base_of_v<U, T>, "");
     ptr->count.fetch_add(1, std::memory_order_relaxed);
   }
 
-  template <class U>
+  template <class U, class = enable_if_base<U>>
   static void decrement (atomic_reference_count<U>* ptr) noexcept {
-    static_assert(std::is_base_of_v<U, T>, "");
     ptr->count.fetch_sub(1, std::memory_order_acq_rel);
     if (not use_count(ptr)) { delete static_cast<T*>(ptr); }
   }
 
-  template <class U>
+  template <class U, class = enable_if_base<U>>
   static long use_count (atomic_reference_count<U>* ptr) noexcept {
-    static_assert(std::is_base_of_v<U, T>, "");
     return ptr->count.load(std::memory_order_relaxed);
   }
 
-  template <class U>
+  template <class U, class = enable_if_base<U>>
   static void increment (reference_count<U>* ptr) noexcept {
-    static_assert(std::is_base_of_v<U, T>, "");
     ++ptr->count;
   }
-  template <class U>
+  template <class U, class = enable_if_base<U>>
   static void decrement (reference_count<U>* ptr) noexcept {
-    static_assert(std::is_base_of_v<U, T>, "");
     --ptr->count;
     if (not use_count(ptr)) { delete static_cast<T*>(ptr); }
   }
-  template <class U>
+  template <class U, class = enable_if_base<U>>
   static long use_count (reference_count<U>* ptr) noexcept {
-    static_assert(std::is_base_of_v<U, T>, "");
     return ptr->count;
   }
 };
